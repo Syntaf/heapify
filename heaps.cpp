@@ -1,6 +1,7 @@
 #include <hpx/hpx_init.hpp>
 #include <hpx/hpx.hpp>
 #include <hpx/util/high_resolution_clock.hpp>
+#include <hpx/include/async.hpp>
 
 #include <iostream>
 #include <algorithm>
@@ -54,6 +55,18 @@ void sift_down(RndIter first, RndIter last, Pred && pred,
     *start = top;
 }
 
+
+template<typename RndIter, typename Pred>
+void sift_down_range(RndIter first, RndIter last, Pred && pred, 
+        typename std::iterator_traits<RndIter>::difference_type len,
+        RndIter start, std::size_t count)
+{
+    for(int i = 0; i < count; i++) {
+        //std::cout << "calling sift_down for " << start-i << std::endl;
+        sift_down<RndIter>(first, last, std::forward<Pred>(pred), len, start - i);
+    }
+}
+
 template<typename RndIter, typename Pred>
 void _make_heap(RndIter first, RndIter last, Pred && pred)
 {
@@ -72,19 +85,21 @@ void _make_heap(RndIter first, RndIter last, Pred && pred)
             start = (difference_type)pow(2, (difference_type)log2(start)) - 2) {     
     
             difference_type end_level = (difference_type)pow(2, (difference_type)log2(start))-2;
-            std::cout << start << " -to-> " << end_level << std::endl;
             float p = (start-end_level) / 2.0; 
 
-            std::cout << "p: " << ceil(p) << "," << floor(p) << std::endl;
+            hpx::future<void> f = 
+                hpx::async(hpx::launch::async,
+                           &sift_down_range<RndIter, Pred>,
+                           first,
+                           last,
+                           std::forward<Pred>(pred),
+                           n,
+                           first + start,
+                           (std::size_t)ceil(p));
+            sift_down_range<RndIter>(first, last, std::forward<Pred>(pred), n,
+                    first + start - (int)ceil(p), floor(p));
 
-            for(int i = 0, _p = (int)ceil(p); i < _p; i++) {
-                std::cout << "calling sift_down for " << start-i << std::endl;
-                sift_down<RndIter>(first, last, std::forward<Pred>(pred), n, first + start - i);
-            }
-            for(int i = 0, _p = (int)ceil(p); i < floor(p); i++) {
-                std::cout << "calling sift_down for " << start-_p-i << std::endl;
-                sift_down<RndIter>(first, last, std::forward<Pred>(pred), n, first + start - _p - i);
-            }
+            f.wait();
         }
 
         sift_down<RndIter>(first, last, std::forward<Pred>(pred), n, first);
