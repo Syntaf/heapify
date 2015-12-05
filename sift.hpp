@@ -50,8 +50,8 @@ void sift_down_range(RndIter first, RndIter last, Pred && pred,
         typename std::iterator_traits<RndIter>::difference_type len,
         RndIter start, std::size_t count)
 {
+    // simply calls sift_down for a range of elements
     for(int i = 0; i < count; i++) {
-        //std::cout << "calling sift_down for " << start-i << std::endl;
         sift_down<RndIter>(first, last, std::forward<Pred>(pred), len, start - i);
     }
 }

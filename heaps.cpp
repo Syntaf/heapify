@@ -22,29 +22,34 @@ void _make_heap(RndIter first, RndIter last, Pred && pred)
     difference_type n = last - first;
 
     if(n > 1) {
-        // create heap
-        for(difference_type start = (n-2)/2; 
-            start > 0; 
+        // Starting at location (n-2)/2, iterate up the RIGHT MOST element of each level.
+        // This loop is the barrier for parallelism within this algorithm, each level must
+        // synchronoize before the next level can begin at it's right most elements. Each
+        // subsequent value of start can be determined by 2^(log2(start)) - 2
+        for(difference_type start = (n-2)/2; start > 0; 
             start = (difference_type)pow(2, (difference_type)log2(start)) - 2) {     
     
+            // Find the location of the next level, elements between start and end will be
+            // partitioned and executed in parallel
             difference_type end_level = (difference_type)pow(2, (difference_type)log2(start))-2;
             float p = (start-end_level) / 2.0; 
 
+            // Launch half of the work asynchronously
             hpx::future<void> f = 
                 hpx::async(hpx::launch::async,
-                           &sift_down_range<RndIter, Pred>,
-                           first,
-                           last,
-                           std::forward<Pred>(pred),
-                           n,
-                           first + start,
-                           (std::size_t)ceil(p));
+                           &sift_down_range<RndIter, Pred>, first, last,
+                           std::forward<Pred>(pred), n, first + start,
+                           (std::size_t)ceil(p)
+                          );
+            // While half the work is done on another thread, do the rest here
             sift_down_range<RndIter>(first, last, std::forward<Pred>(pred), n,
                     first + start - (int)ceil(p), floor(p));
 
+            // We MUST synchronize before moving up levels
             f.wait();
         }
 
+        // Perform sift down for the head node
         sift_down<RndIter>(first, last, std::forward<Pred>(pred), n, first);
 
     }
