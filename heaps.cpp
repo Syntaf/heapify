@@ -1,7 +1,12 @@
+#include <hpx/hpx_init.hpp>
+#include <hpx/hpx.hpp>
+#include <hpx/util/high_resolution_clock.hpp>
+
 #include <iostream>
 #include <algorithm>
 #include <vector>
 #include <math.h>
+
 
 template<typename RndIter, typename Pred>
 void sift_down(RndIter first, RndIter last, Pred && pred, 
@@ -68,17 +73,17 @@ void _make_heap(RndIter first, RndIter last, Pred && pred)
     
             difference_type end_level = (difference_type)pow(2, (difference_type)log2(start))-2;
             std::cout << start << " -to-> " << end_level << std::endl;
-            difference_type p = (start-end_level) / 2; 
+            float p = (start-end_level) / 2.0; 
 
-            std::cout << "p: " << p << " , end_level: " << end_level << std::endl;
+            std::cout << "p: " << ceil(p) << "," << floor(p) << std::endl;
 
-            for(int i = 0; i < p; i++) {
+            for(int i = 0, _p = (int)ceil(p); i < _p; i++) {
                 std::cout << "calling sift_down for " << start-i << std::endl;
                 sift_down<RndIter>(first, last, std::forward<Pred>(pred), n, first + start - i);
             }
-            for(int i = 0; i < p; i++) {
-                std::cout << "calling sift_down for " << start-p-i << std::endl;
-                sift_down<RndIter>(first, last, std::forward<Pred>(pred), n, first + start - p - i);
+            for(int i = 0, _p = (int)ceil(p); i < floor(p); i++) {
+                std::cout << "calling sift_down for " << start-_p-i << std::endl;
+                sift_down<RndIter>(first, last, std::forward<Pred>(pred), n, first + start - _p - i);
             }
         }
 
@@ -87,9 +92,10 @@ void _make_heap(RndIter first, RndIter last, Pred && pred)
     }
 }
 
-int main() 
+int hpx_main(boost::program_options::variables_map& vm)
 {
-    std::vector<int> v(10); //= {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+    std::size_t vector_size = vm["vector_size"].as<std::size_t>();
+    std::vector<int> v(vector_size); //= {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
     std::iota(v.begin(), v.end(), 0);
 
     std::cout << "Before: ";
@@ -107,6 +113,19 @@ int main()
     bool worked = std::is_heap(v.begin(), v.end());
 
     std::cout << "is heap? " << (worked ? "true" : "false") << std::endl;
+    return hpx::finalize();
+}
 
-    return 0;
+int main(int argc, char* argv[]) 
+{
+    // configure application-specific options
+    boost::program_options::options_description 
+        cmdline("usage: " HPX_APPLICATION_STRING " [options]");
+
+    cmdline.add_options()
+        ("vector_size"
+        , boost::program_options::value<std::size_t>()->default_value(25)
+        , "size of vector");
+
+    return hpx::init(cmdline, argc, argv);
 }
