@@ -33,20 +33,20 @@ void _make_heap(RndIter first, RndIter last, Pred && pred, std::size_t chunk_siz
             // partitioned and executed in parallel
             difference_type end_level = (difference_type)pow(2, (difference_type)log2(start))-2;
 
-            std::cout << start << " - " << end_level << std::endl;
             // range is [start,end_level) , thus leave one off when counting items
             std::size_t items = (start-end_level);
 
+            // If the chunk_size has become too big, split the level into two chunks
             if(chunk_size > items)
                 chunk_size = items / 2;
 
+            // Reserve items/chunk_size spaces for async calls
             std::vector<hpx::future<void> > workitems;
             workitems.reserve(items/chunk_size);
+
+            // Schedule work based on chunk size
             std::size_t cnt = 0;
-            std::cout << "Items: " << items << ", Chunk_size: " << chunk_size << std::endl;
             while(cnt+chunk_size < items) {
-                std::cout << "Launching items " << start - cnt << " to " 
-                          << start - cnt - chunk_size << std::endl;
                 workitems.push_back(
                     hpx::async(hpx::launch::async,
                                &sift_down_range<RndIter, Pred>, first, last,
@@ -56,9 +56,8 @@ void _make_heap(RndIter first, RndIter last, Pred && pred, std::size_t chunk_siz
                 cnt += chunk_size;
             }
 
+            // Schedule any left-over work
             if(cnt < items) {
-                std::cout << "lLaunching items " << start - cnt << " to " 
-                          << start - cnt - (items-cnt) << std::endl;
                 workitems.push_back(
                     hpx::async(hpx::launch::async,
                                &sift_down_range<RndIter, Pred>, first, last,
@@ -67,6 +66,7 @@ void _make_heap(RndIter first, RndIter last, Pred && pred, std::size_t chunk_siz
                     );
             }
 
+            // Required synchronoization per level
             hpx::wait_all(workitems);
         }
 
@@ -83,8 +83,14 @@ int hpx_main(boost::program_options::variables_map& vm)
     std::vector<int> v(vector_size);
     std::iota(v.begin(), v.end(), 0);
 
+    if(chunk_size == 0) {
+        std::size_t threads = hpx::threads::hardware_concurrency();
+        chunk_size = vector_size / threads;
+    }
+
     std::cout << "Distance of tree: " << vector_size << std::endl;
     std::cout << "Height: " << (int)log2(vector_size) << std::endl;
+    std::cout << "Using chunk size: " << chunk_size << std::endl;
 
     std::cout << "Running parallel make heap...\n";
     boost::uint64_t start = hpx::util::high_resolution_clock::now();
@@ -125,7 +131,7 @@ int main(int argc, char* argv[])
         , "size of vector")
         
         ("chunk_size"
-        , boost::program_options::value<std::size_t>()->default_value(2)
+        , boost::program_options::value<std::size_t>()->default_value(0)
         , "amount of work per thread")
         ;
 
