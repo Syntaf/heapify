@@ -13,7 +13,7 @@
 
 
 template<typename RndIter, typename Pred>
-void _make_heap(RndIter first, RndIter last, Pred && pred)
+void _make_heap(RndIter first, RndIter last, Pred && pred, std::size_t chunk_size)
 {
     typedef typename std::iterator_traits<RndIter>::difference_type 
         difference_type;
@@ -32,21 +32,42 @@ void _make_heap(RndIter first, RndIter last, Pred && pred)
             // Find the location of the next level, elements between start and end will be
             // partitioned and executed in parallel
             difference_type end_level = (difference_type)pow(2, (difference_type)log2(start))-2;
-            float p = (start-end_level) / 2.0; 
 
-            // Launch half of the work asynchronously
-            hpx::future<void> f = 
-                hpx::async(hpx::launch::async,
-                           &sift_down_range<RndIter, Pred>, first, last,
-                           std::forward<Pred>(pred), n, first + start,
-                           (std::size_t)ceil(p)
-                          );
-            // While half the work is done on another thread, do the rest here
-            sift_down_range<RndIter>(first, last, std::forward<Pred>(pred), n,
-                    first + start - (int)ceil(p), floor(p));
+            std::cout << start << " - " << end_level << std::endl;
+            // range is [start,end_level) , thus leave one off when counting items
+            std::size_t items = (start-end_level);
 
-            // We MUST synchronize before moving up levels
-            f.wait();
+            if(chunk_size > items)
+                chunk_size = items / 2;
+
+            std::vector<hpx::future<void> > workitems;
+            workitems.reserve(items/chunk_size);
+            std::size_t cnt = 0;
+            std::cout << "Items: " << items << ", Chunk_size: " << chunk_size << std::endl;
+            while(cnt+chunk_size < items) {
+                std::cout << "Launching items " << start - cnt << " to " 
+                          << start - cnt - chunk_size << std::endl;
+                workitems.push_back(
+                    hpx::async(hpx::launch::async,
+                               &sift_down_range<RndIter, Pred>, first, last,
+                               std::forward<Pred>(pred), n, first + start - cnt,
+                               chunk_size)
+                    );
+                cnt += chunk_size;
+            }
+
+            if(cnt < items) {
+                std::cout << "lLaunching items " << start - cnt << " to " 
+                          << start - cnt - (items-cnt) << std::endl;
+                workitems.push_back(
+                    hpx::async(hpx::launch::async,
+                               &sift_down_range<RndIter, Pred>, first, last,
+                               std::forward<Pred>(pred), n, first + start - cnt,
+                               items-cnt)
+                    );
+            }
+
+            hpx::wait_all(workitems);
         }
 
         // Perform sift down for the head node
@@ -57,6 +78,7 @@ void _make_heap(RndIter first, RndIter last, Pred && pred)
 
 int hpx_main(boost::program_options::variables_map& vm)
 {
+    std::size_t chunk_size = vm["chunk_size"].as<std::size_t>();
     std::size_t vector_size = vm["vector_size"].as<std::size_t>();
     std::vector<int> v(vector_size);
     std::iota(v.begin(), v.end(), 0);
@@ -66,7 +88,7 @@ int hpx_main(boost::program_options::variables_map& vm)
 
     std::cout << "Running parallel make heap...\n";
     boost::uint64_t start = hpx::util::high_resolution_clock::now();
-    _make_heap(v.begin(), v.end(), std::less<int>());
+    _make_heap(v.begin(), v.end(), std::less<int>(), chunk_size);
     boost::uint64_t time = hpx::util::high_resolution_clock::now() - start;
     bool worked = std::is_heap(v.begin(), v.end());
 
@@ -100,7 +122,12 @@ int main(int argc, char* argv[])
     cmdline.add_options()
         ("vector_size"
         , boost::program_options::value<std::size_t>()->default_value(25)
-        , "size of vector");
+        , "size of vector")
+        
+        ("chunk_size"
+        , boost::program_options::value<std::size_t>()->default_value(2)
+        , "amount of work per thread")
+        ;
 
     return hpx::init(cmdline, argc, argv);
 }
